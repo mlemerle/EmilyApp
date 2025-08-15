@@ -207,17 +207,14 @@ def transcribe_audio_free(audio_bytes: bytes) -> str:
         
         # Try multiple free engines in order of preference
         engines = [
-            ("Google (Free)", lambda: recognizer.recognize_google(audio)),
-            ("Google Cloud (Free tier)", lambda: recognizer.recognize_google_cloud(audio)),
-            ("Wit.ai (Free)", lambda: recognizer.recognize_wit(audio, key="YOUR_WIT_AI_KEY")),
+            ("Google", lambda: recognizer.recognize_google(audio)),
+            ("Google Cloud", lambda: recognizer.recognize_google_cloud(audio)),
         ]
         
         for engine_name, recognize_func in engines:
             try:
-                st.info(f"🔄 Trying {engine_name}...")
                 transcript = recognize_func()
                 if transcript:
-                    st.success(f"✅ Transcribed using {engine_name}")
                     # Clean up temp file
                     try:
                         os.unlink(temp_audio_path)
@@ -225,17 +222,14 @@ def transcribe_audio_free(audio_bytes: bytes) -> str:
                         pass
                     return transcript
             except sr.UnknownValueError:
-                st.warning(f"❌ {engine_name} could not understand the audio")
                 continue
             except sr.RequestError as e:
-                st.warning(f"❌ {engine_name} error: {e}")
                 continue
             except Exception as e:
-                st.warning(f"❌ {engine_name} failed: {e}")
                 continue
         
         # If all engines fail
-        st.error("All free transcription engines failed. Please use manual transcription.")
+        st.error("Transcription failed. Please try manual transcription.")
         # Clean up temp file
         try:
             os.unlink(temp_audio_path)
@@ -244,7 +238,7 @@ def transcribe_audio_free(audio_bytes: bytes) -> str:
         return ""
         
     except Exception as e:
-        st.error(f"Free transcription failed: {e}")
+        st.error("Transcription failed. Please try manual transcription.")
         return ""
 
 def transcribe_audio(audio_bytes: bytes) -> str:
@@ -646,12 +640,6 @@ def main():
     st.sidebar.title("🎯 Personal Brand Studio")
     st.sidebar.markdown("---")
     
-    # Debug info for OpenAI availability
-    if OPENAI_AVAILABLE:
-        st.sidebar.success("✅ OpenAI API Connected")
-    else:
-        st.sidebar.warning("⚠️ OpenAI API Not Available")
-    
     # Get or create user profile
     user_profile = get_user_profile()
     
@@ -748,49 +736,18 @@ def voice_capture_page(user_profile: UserProfile):
         st.subheader("Record Your Voice Note")
         st.markdown("Click the record button below to capture your thoughts directly in the browser.")
         
-        # Info about transcription options
-        with st.expander("ℹ️ Transcription Options"):
-            st.markdown("""
-            **🤖 OpenAI Whisper**: Most accurate, requires API credits
-            
-            **🆓 Free Transcription**: Uses Google Speech Recognition (free tier)
-            - Good accuracy for clear speech
-            - No API costs
-            - May have usage limits
-            
-            **✍️ Manual**: Always available, you type what you said
-            """)
-        
         # Audio recorder widget
         audio_bytes = st.audio_input("Record your voice note:")
         
         if audio_bytes is not None:
             st.audio(audio_bytes, format="audio/wav")
             
-            # Show transcription options
-            st.markdown("**Choose your transcription method:**")
-            col1, col2, col3 = st.columns(3)
+            # Streamlined transcription interface
+            col1, col2 = st.columns(2)
             
             with col1:
-                if st.button("🤖 OpenAI Whisper", type="primary", disabled=not OPENAI_AVAILABLE):
-                    with st.spinner("Transcribing with OpenAI Whisper..."):
-                        transcript = transcribe_audio(audio_bytes)
-                        
-                        if transcript and transcript.strip():
-                            # Detect themes and process
-                            themes = detect_themes(transcript)
-                            voice_note_id = save_voice_note(transcript, themes, "recorded_audio.wav")
-                            
-                            # Display results
-                            st.success("Audio processed successfully!")
-                            display_voice_note_results(transcript, themes, voice_note_id)
-                        else:
-                            st.error("OpenAI transcription failed. Try the free option below.")
-                            st.session_state.manual_transcribe_mode = True
-            
-            with col2:
-                if st.button("🆓 Free Transcription", type="secondary"):
-                    with st.spinner("Transcribing with free engines..."):
+                if st.button("🎤 Transcribe & Process", type="primary"):
+                    with st.spinner("Transcribing audio and analyzing themes..."):
                         transcript = transcribe_audio_free(audio_bytes)
                         
                         if transcript and transcript.strip():
@@ -802,10 +759,10 @@ def voice_capture_page(user_profile: UserProfile):
                             st.success("Audio processed successfully!")
                             display_voice_note_results(transcript, themes, voice_note_id)
                         else:
-                            st.error("Free transcription failed. Please use manual transcription.")
+                            st.error("Auto-transcription failed. Please use manual transcription.")
                             st.session_state.manual_transcribe_mode = True
             
-            with col3:
+            with col2:
                 if st.button("✍️ Manual Transcription"):
                     st.session_state.manual_transcribe_mode = True
             
