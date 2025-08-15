@@ -189,7 +189,25 @@ def transcribe_audio(audio_bytes: bytes) -> str:
             st.error(f"Audio transcription failed: {e}")
             return "Transcription failed. Please try again or enter text manually."
     else:
-        return "Audio transcription requires OpenAI API key. Please enter your content as text."
+        # Fallback: Let user manually enter what they said
+        st.warning("⚠️ Audio transcription requires OpenAI API key for automatic processing.")
+        st.info("💡 **Workaround**: Please listen to your recording and type what you said below:")
+        
+        # Show the audio player so they can listen and transcribe manually
+        st.audio(audio_bytes, format="audio/wav")
+        
+        # Text input for manual transcription
+        manual_transcript = st.text_area(
+            "Type what you said in the recording:",
+            placeholder="Listen to your recording above and type the content here...",
+            height=100,
+            key="manual_transcribe"
+        )
+        
+        if manual_transcript:
+            return manual_transcript
+        else:
+            return ""
 
 def detect_themes(text: str) -> List[str]:
     """Detect themes in content using AI or rule-based approach"""
@@ -231,10 +249,28 @@ def detect_themes(text: str) -> List[str]:
 
 def generate_content(transcript: str, format_type: str, user_tone: str) -> str:
     """Generate content in specified format using AI or templates"""
+    
+    # Emily's specific LinkedIn style prompt
+    emily_linkedin_prompt = """You're a GPT designed to write in a warm, conversational tone with a mix of playful corporate humor, polished storytelling, and confident-but-approachable style. Your writing should feel like a senior leader chatting with a colleague over coffee—part mentor, part meme-sharer. You sound friendly and personable, but you're also sharp and narrative-driven. Prioritize short to medium-length sentences, and lean into a casual rhythm with professional polish. Avoid jargon or cliché phrases like "here's the kicker."
+
+Style Guide:
+- Write in first-person, as if narrating your own experience
+- Blend personal anecdotes, quick insights, and useful advice
+- Be casually witty, slightly self-deprecating, and confidently insightful
+- Use vivid, concrete language and sensory phrasing when appropriate
+- Switch between short, punchy sentences and longer, flowing ones
+- Infuse a multichannel brand energy (LinkedIn, events, personal wins)
+- Position achievements with humility and humor (e.g. "wear many hats," "accidentally went viral")
+- Think of it like storytelling-meets-LinkedIn-meets-slide-deck-afterparty
+
+Tone: Friendly, energetic, and self-aware. Confident but never arrogant. Lightly pokes fun at corporate norms (while clearly understanding them). A mix of real-life reflections, data points, memes, and insights. You're not just here to inform—you're here to connect, inspire, and make the reader smile (or snort-laugh) while learning something useful.
+
+Create a LinkedIn post based on this content. Keep it under 1300 characters and include relevant hashtags."""
+    
     if OPENAI_AVAILABLE:
         try:
             format_prompts = {
-                "linkedin": f"Create a LinkedIn post in a {user_tone} tone based on this content. Keep it engaging, professional, and include relevant hashtags. Max 1300 characters.",
+                "linkedin": emily_linkedin_prompt,
                 "video_script": f"Create a 60-90 second video script in a {user_tone} tone based on this content. Include clear talking points and engagement hooks.",
                 "newsletter": f"Create a newsletter snippet in a {user_tone} tone based on this content. Make it informative and actionable for business leaders."
             }
@@ -242,7 +278,7 @@ def generate_content(transcript: str, format_type: str, user_tone: str) -> str:
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": f"You are an expert content creator for business executives. {format_prompts.get(format_type, 'Create engaging business content.')}"},
+                    {"role": "system", "content": format_prompts.get(format_type, f'Create engaging business content in a {user_tone} tone.')},
                     {"role": "user", "content": transcript}
                 ],
                 max_tokens=500
@@ -251,31 +287,40 @@ def generate_content(transcript: str, format_type: str, user_tone: str) -> str:
         except:
             pass
     
-    # Fallback templates
+    # Enhanced fallback templates with Emily's style for LinkedIn
     templates = {
-        "linkedin": f"""🚀 Key insight from today:
+        "linkedin": f"""Just had one of those lightbulb moments...
 
 {transcript[:200]}...
 
-What's your take on this? Share your thoughts below! 👇
+Anyone else experiencing this? Drop your thoughts below – I'm genuinely curious what your take is! 👇
 
-#Leadership #BusinessInsights #Growth""",
+(And yes, I may have overthought this during my third coffee of the day ☕)
+
+#Leadership #RealTalk #CorporateLife #Growth""",
         
-        "video_script": f"""[HOOK] Here's something interesting I've been thinking about...
+        "video_script": f"""[HOOK] Okay, so this just happened and I had to share...
 
 [MAIN POINT] {transcript[:150]}...
 
-[CALL TO ACTION] What do you think? Drop a comment and let me know your perspective!
+[PERSONAL TOUCH] Classic case of "learn something new every day," right?
+
+[CALL TO ACTION] What's your experience with this? I'd love to hear your stories in the comments!
 
 [DURATION: 60-90 seconds]""",
         
-        "newsletter": f"""💡 **This Week's Insight**
+        "newsletter": f"""💡 **This Week's "Aha!" Moment**
+
+So here's what went down this week...
 
 {transcript[:300]}...
 
-**Key Takeaway:** [Your main learning or recommendation here]
+**The Real Talk:** Sometimes the best insights come from the most unexpected places. (Who knew?)
 
-**Action Item:** Consider how this applies to your current projects or team dynamics.
+**Your Move:** Take a moment to think about where your latest breakthrough came from. I bet it wasn't where you expected.
+
+Stay curious,
+Emily ✨
 """
     }
     
@@ -460,6 +505,28 @@ def get_implementation_prompts(weak_themes: List[str]) -> List[str]:
     
     return implementation_prompts[:3]  # Return top 3 prompts
 
+def display_voice_note_results(transcript: str, themes: List[str], voice_note_id: int):
+    """Display voice note processing results"""
+    st.subheader("Transcript")
+    st.write(transcript)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Detected Themes")
+        for theme in themes:
+            st.badge(theme)
+    
+    with col2:
+        st.subheader("Next Steps")
+        st.info("Go to Content Generator to create posts from this content!")
+    
+    # Store in session state for content generation
+    st.session_state.latest_voice_note = {
+        'id': voice_note_id,
+        'transcript': transcript,
+        'themes': themes
+    }
+
 def suggest_posting_cadence(user_frequency: str, content_count: int) -> Dict[str, str]:
     """Suggest optimal posting cadence based on user bandwidth and content"""
     frequency_mapping = {
@@ -603,42 +670,54 @@ def voice_capture_page(user_profile: UserProfile):
         if audio_bytes is not None:
             st.audio(audio_bytes, format="audio/wav")
             
-            if st.button("Transcribe & Process Recording", type="primary"):
-                with st.spinner("Transcribing audio and analyzing themes..."):
-                    # Transcribe audio
-                    transcript = transcribe_audio(audio_bytes)
-                    
-                    if "failed" not in transcript.lower():
-                        # Detect themes
-                        themes = detect_themes(transcript)
+            # Show transcription options
+            st.markdown("**Choose your transcription method:**")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🤖 Auto-Transcribe (OpenAI)", type="primary", disabled=not OPENAI_AVAILABLE):
+                    with st.spinner("Transcribing audio and analyzing themes..."):
+                        transcript = transcribe_audio(audio_bytes)
                         
-                        # Save voice note
-                        voice_note_id = save_voice_note(transcript, themes, "recorded_audio.wav")
+                        if transcript and "failed" not in transcript.lower():
+                            # Detect themes and process
+                            themes = detect_themes(transcript)
+                            voice_note_id = save_voice_note(transcript, themes, "recorded_audio.wav")
+                            
+                            # Display results
+                            st.success("Audio processed successfully!")
+                            display_voice_note_results(transcript, themes, voice_note_id)
+                        else:
+                            st.error("Auto-transcription failed. Please use manual transcription below.")
+            
+            with col2:
+                if st.button("✍️ Manual Transcription"):
+                    st.session_state.manual_transcribe_mode = True
+            
+            # Manual transcription mode
+            if st.session_state.get('manual_transcribe_mode'):
+                st.markdown("**Manual Transcription**")
+                st.info("🎧 Listen to your recording above and type what you said:")
+                
+                manual_transcript = st.text_area(
+                    "Type your voice note content:",
+                    placeholder="Type what you said in the recording...",
+                    height=100,
+                    key="manual_transcript_input"
+                )
+                
+                if st.button("Process Manual Transcript") and manual_transcript:
+                    with st.spinner("Analyzing themes and generating content..."):
+                        # Detect themes
+                        themes = detect_themes(manual_transcript)
+                        voice_note_id = save_voice_note(manual_transcript, themes, "recorded_audio.wav")
                         
                         # Display results
-                        st.success("Audio processed successfully!")
+                        st.success("Content processed successfully!")
+                        display_voice_note_results(manual_transcript, themes, voice_note_id)
                         
-                        st.subheader("Transcript")
-                        st.write(transcript)
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.subheader("Detected Themes")
-                            for theme in themes:
-                                st.badge(theme)
-                        
-                        with col2:
-                            st.subheader("Next Steps")
-                            st.info("Go to Content Generator to create posts from this content!")
-                        
-                        # Store in session state for content generation
-                        st.session_state.latest_voice_note = {
-                            'id': voice_note_id,
-                            'transcript': transcript,
-                            'themes': themes
-                        }
-                    else:
-                        st.error(transcript)
+                        # Clear the manual transcription mode
+                        st.session_state.manual_transcribe_mode = False
     
     with tab2:
         st.subheader("Enter Your Thoughts")
