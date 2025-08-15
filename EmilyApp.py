@@ -30,8 +30,16 @@ st.set_page_config(
 
 # Initialize OpenAI client (optional - will use fallbacks if not available)
 try:
-    openai.api_key = os.getenv('OPENAI_API_KEY')
-    OPENAI_AVAILABLE = bool(openai.api_key)
+    # Try Streamlit secrets first (for cloud deployment)
+    if hasattr(st, 'secrets') and 'OPENAI_API_KEY' in st.secrets:
+        openai.api_key = st.secrets['OPENAI_API_KEY']
+        OPENAI_AVAILABLE = True
+    # Fallback to environment variable (for local development)
+    elif os.getenv('OPENAI_API_KEY'):
+        openai.api_key = os.getenv('OPENAI_API_KEY')
+        OPENAI_AVAILABLE = True
+    else:
+        OPENAI_AVAILABLE = False
 except:
     OPENAI_AVAILABLE = False
 
