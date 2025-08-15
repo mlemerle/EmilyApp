@@ -184,10 +184,18 @@ def transcribe_audio(audio_bytes: bytes) -> str:
     """Transcribe audio using OpenAI Whisper or fallback"""
     if OPENAI_AVAILABLE:
         try:
+            # Handle both bytes and UploadedFile objects
+            if hasattr(audio_bytes, 'read'):
+                # It's a file-like object (UploadedFile)
+                audio_data = audio_bytes.read()
+            else:
+                # It's already bytes
+                audio_data = audio_bytes
+            
             # Save audio temporarily
             temp_audio_path = "temp_audio.wav"
             with open(temp_audio_path, "wb") as f:
-                f.write(audio_bytes)
+                f.write(audio_data)
             
             # Use OpenAI Whisper
             with open(temp_audio_path, "rb") as audio_file:
@@ -195,27 +203,19 @@ def transcribe_audio(audio_bytes: bytes) -> str:
                 return transcript.text
         except Exception as e:
             st.error(f"Audio transcription failed: {e}")
-            return "Transcription failed. Please try again or enter text manually."
+            return ""
     else:
         # Fallback: Let user manually enter what they said
         st.warning("⚠️ Audio transcription requires OpenAI API key for automatic processing.")
         st.info("💡 **Workaround**: Please listen to your recording and type what you said below:")
         
         # Show the audio player so they can listen and transcribe manually
-        st.audio(audio_bytes, format="audio/wav")
-        
-        # Text input for manual transcription
-        manual_transcript = st.text_area(
-            "Type what you said in the recording:",
-            placeholder="Listen to your recording above and type the content here...",
-            height=100,
-            key="manual_transcribe"
-        )
-        
-        if manual_transcript:
-            return manual_transcript
+        if hasattr(audio_bytes, 'read'):
+            st.audio(audio_bytes, format="audio/wav")
         else:
-            return ""
+            st.audio(audio_bytes, format="audio/wav")
+        
+        return ""
 
 def detect_themes(text: str) -> List[str]:
     """Detect themes in content using AI or rule-based approach"""
@@ -687,7 +687,7 @@ def voice_capture_page(user_profile: UserProfile):
                     with st.spinner("Transcribing audio and analyzing themes..."):
                         transcript = transcribe_audio(audio_bytes)
                         
-                        if transcript and "failed" not in transcript.lower():
+                        if transcript and transcript.strip():
                             # Detect themes and process
                             themes = detect_themes(transcript)
                             voice_note_id = save_voice_note(transcript, themes, "recorded_audio.wav")
@@ -697,6 +697,7 @@ def voice_capture_page(user_profile: UserProfile):
                             display_voice_note_results(transcript, themes, voice_note_id)
                         else:
                             st.error("Auto-transcription failed. Please use manual transcription below.")
+                            st.session_state.manual_transcribe_mode = True
             
             with col2:
                 if st.button("✍️ Manual Transcription"):
@@ -779,13 +780,10 @@ def voice_capture_page(user_profile: UserProfile):
             
             if st.button("Transcribe & Process Audio", type="primary"):
                 with st.spinner("Transcribing audio and analyzing themes..."):
-                    # Get audio bytes
-                    audio_bytes = uploaded_file.read()
+                    # Transcribe audio - uploaded_file is already a file-like object
+                    transcript = transcribe_audio(uploaded_file)
                     
-                    # Transcribe audio
-                    transcript = transcribe_audio(audio_bytes)
-                    
-                    if "failed" not in transcript.lower():
+                    if transcript and transcript.strip():
                         # Detect themes
                         themes = detect_themes(transcript)
                         
@@ -794,28 +792,21 @@ def voice_capture_page(user_profile: UserProfile):
                         
                         # Display results
                         st.success("Audio processed successfully!")
-                        
-                        st.subheader("Transcript")
-                        st.write(transcript)
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.subheader("Detected Themes")
-                            for theme in themes:
-                                st.badge(theme)
-                        
-                        with col2:
-                            st.subheader("Next Steps")
-                            st.info("Go to Content Generator to create posts from this content!")
-                        
-                        # Store in session state for content generation
-                        st.session_state.latest_voice_note = {
-                            'id': voice_note_id,
-                            'transcript': transcript,
-                            'themes': themes
-                        }
+                        display_voice_note_results(transcript, themes, voice_note_id)
                     else:
-                        st.error(transcript)
+                        st.error("Transcription failed. Please try manual transcription:")
+                        manual_transcript = st.text_area(
+                            "Listen to the audio above and type what you heard:",
+                            placeholder="Type the content of your audio file...",
+                            height=100,
+                            key="upload_manual_transcript"
+                        )
+                        
+                        if st.button("Process Manual Transcript", key="upload_process_manual") and manual_transcript:
+                            themes = detect_themes(manual_transcript)
+                            voice_note_id = save_voice_note(manual_transcript, themes, uploaded_file.name)
+                            st.success("Content processed successfully!")
+                            display_voice_note_results(manual_transcript, themes, voice_note_id)
 
 def content_generator_page(user_profile: UserProfile):
     """Content generation page"""
