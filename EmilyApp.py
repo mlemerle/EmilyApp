@@ -19,6 +19,8 @@ import os
 from openai import OpenAI
 from io import BytesIO
 import base64
+import speech_recognition as sr
+import tempfile
 
 # Configure Streamlit page
 st.set_page_config(
@@ -181,6 +183,69 @@ def save_user_profile(profile: UserProfile):
           profile.posting_frequency, json.dumps(profile.interests)))
     conn.commit()
     conn.close()
+
+def transcribe_audio_free(audio_bytes: bytes) -> str:
+    """Free transcription using SpeechRecognition library with multiple engines"""
+    try:
+        # Handle both bytes and UploadedFile objects
+        if hasattr(audio_bytes, 'read'):
+            audio_data = audio_bytes.read()
+        else:
+            audio_data = audio_bytes
+        
+        # Save audio temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
+            temp_file.write(audio_data)
+            temp_audio_path = temp_file.name
+        
+        # Initialize recognizer
+        recognizer = sr.Recognizer()
+        
+        # Load audio file
+        with sr.AudioFile(temp_audio_path) as audio_source:
+            audio = recognizer.record(audio_source)
+        
+        # Try multiple free engines in order of preference
+        engines = [
+            ("Google (Free)", lambda: recognizer.recognize_google(audio)),
+            ("Google Cloud (Free tier)", lambda: recognizer.recognize_google_cloud(audio)),
+            ("Wit.ai (Free)", lambda: recognizer.recognize_wit(audio, key="YOUR_WIT_AI_KEY")),
+        ]
+        
+        for engine_name, recognize_func in engines:
+            try:
+                st.info(f"🔄 Trying {engine_name}...")
+                transcript = recognize_func()
+                if transcript:
+                    st.success(f"✅ Transcribed using {engine_name}")
+                    # Clean up temp file
+                    try:
+                        os.unlink(temp_audio_path)
+                    except:
+                        pass
+                    return transcript
+            except sr.UnknownValueError:
+                st.warning(f"❌ {engine_name} could not understand the audio")
+                continue
+            except sr.RequestError as e:
+                st.warning(f"❌ {engine_name} error: {e}")
+                continue
+            except Exception as e:
+                st.warning(f"❌ {engine_name} failed: {e}")
+                continue
+        
+        # If all engines fail
+        st.error("All free transcription engines failed. Please use manual transcription.")
+        # Clean up temp file
+        try:
+            os.unlink(temp_audio_path)
+        except:
+            pass
+        return ""
+        
+    except Exception as e:
+        st.error(f"Free transcription failed: {e}")
+        return ""
 
 def transcribe_audio(audio_bytes: bytes) -> str:
     """Transcribe audio using OpenAI Whisper or fallback"""
@@ -683,6 +748,19 @@ def voice_capture_page(user_profile: UserProfile):
         st.subheader("Record Your Voice Note")
         st.markdown("Click the record button below to capture your thoughts directly in the browser.")
         
+        # Info about transcription options
+        with st.expander("ℹ️ Transcription Options"):
+            st.markdown("""
+            **🤖 OpenAI Whisper**: Most accurate, requires API credits
+            
+            **🆓 Free Transcription**: Uses Google Speech Recognition (free tier)
+            - Good accuracy for clear speech
+            - No API costs
+            - May have usage limits
+            
+            **✍️ Manual**: Always available, you type what you said
+            """)
+        
         # Audio recorder widget
         audio_bytes = st.audio_input("Record your voice note:")
         
@@ -691,11 +769,11 @@ def voice_capture_page(user_profile: UserProfile):
             
             # Show transcription options
             st.markdown("**Choose your transcription method:**")
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
-                if st.button("🤖 Auto-Transcribe (OpenAI)", type="primary", disabled=not OPENAI_AVAILABLE):
-                    with st.spinner("Transcribing audio and analyzing themes..."):
+                if st.button("🤖 OpenAI Whisper", type="primary", disabled=not OPENAI_AVAILABLE):
+                    with st.spinner("Transcribing with OpenAI Whisper..."):
                         transcript = transcribe_audio(audio_bytes)
                         
                         if transcript and transcript.strip():
@@ -707,10 +785,27 @@ def voice_capture_page(user_profile: UserProfile):
                             st.success("Audio processed successfully!")
                             display_voice_note_results(transcript, themes, voice_note_id)
                         else:
-                            st.error("Auto-transcription failed. Please use manual transcription below.")
+                            st.error("OpenAI transcription failed. Try the free option below.")
                             st.session_state.manual_transcribe_mode = True
             
             with col2:
+                if st.button("🆓 Free Transcription", type="secondary"):
+                    with st.spinner("Transcribing with free engines..."):
+                        transcript = transcribe_audio_free(audio_bytes)
+                        
+                        if transcript and transcript.strip():
+                            # Detect themes and process
+                            themes = detect_themes(transcript)
+                            voice_note_id = save_voice_note(transcript, themes, "recorded_audio.wav")
+                            
+                            # Display results
+                            st.success("Audio processed successfully!")
+                            display_voice_note_results(transcript, themes, voice_note_id)
+                        else:
+                            st.error("Free transcription failed. Please use manual transcription.")
+                            st.session_state.manual_transcribe_mode = True
+            
+            with col3:
                 if st.button("✍️ Manual Transcription"):
                     st.session_state.manual_transcribe_mode = True
             
