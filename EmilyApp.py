@@ -16,7 +16,7 @@ import datetime
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional
 import os
-import openai
+from openai import OpenAI
 from io import BytesIO
 import base64
 
@@ -32,16 +32,18 @@ st.set_page_config(
 try:
     # Try Streamlit secrets first (for cloud deployment)
     if hasattr(st, 'secrets') and 'OPENAI_API_KEY' in st.secrets:
-        openai.api_key = st.secrets['OPENAI_API_KEY']
+        client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
         OPENAI_AVAILABLE = True
     # Fallback to environment variable (for local development)
     elif os.getenv('OPENAI_API_KEY'):
-        openai.api_key = os.getenv('OPENAI_API_KEY')
+        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         OPENAI_AVAILABLE = True
     else:
         OPENAI_AVAILABLE = False
-except:
+        client = None
+except Exception as e:
     OPENAI_AVAILABLE = False
+    client = None
 
 # Database setup
 DATABASE_PATH = "personal_brand_studio.db"
@@ -199,7 +201,10 @@ def transcribe_audio(audio_bytes: bytes) -> str:
             
             # Use OpenAI Whisper
             with open(temp_audio_path, "rb") as audio_file:
-                transcript = openai.Audio.transcribe("whisper-1", audio_file)
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1", 
+                    file=audio_file
+                )
                 return transcript.text
         except Exception as e:
             st.error(f"Audio transcription failed: {e}")
@@ -221,7 +226,7 @@ def detect_themes(text: str) -> List[str]:
     """Detect themes in content using AI or rule-based approach"""
     if OPENAI_AVAILABLE:
         try:
-            response = openai.ChatCompletion.create(
+            response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "You are an expert at analyzing business content themes. Identify the main themes from the following categories: leadership, product, industry insights, personal story, strategy, innovation, team building, customer success, market trends, company culture. Return only a comma-separated list of relevant themes."},
@@ -283,7 +288,7 @@ Create a LinkedIn post based on this content. Keep it under 1300 characters and 
                 "newsletter": f"Create a newsletter snippet in a {user_tone} tone based on this content. Make it informative and actionable for business leaders."
             }
             
-            response = openai.ChatCompletion.create(
+            response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": format_prompts.get(format_type, f'Create engaging business content in a {user_tone} tone.')},
@@ -575,6 +580,12 @@ def main():
     # Sidebar navigation
     st.sidebar.title("🎯 Personal Brand Studio")
     st.sidebar.markdown("---")
+    
+    # Debug info for OpenAI availability
+    if OPENAI_AVAILABLE:
+        st.sidebar.success("✅ OpenAI API Connected")
+    else:
+        st.sidebar.warning("⚠️ OpenAI API Not Available")
     
     # Get or create user profile
     user_profile = get_user_profile()
